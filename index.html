@@ -50,6 +50,7 @@ th,td{text-align:left;padding:8px 6px;border-top:1px solid var(--bd);white-space
   <h2 style="margin-bottom:10px">Enter your access code</h2>
   <input id="sid" type="password" inputmode="numeric" autocomplete="off" data-lpignore="true" placeholder="Access code">
   <button class="pick" id="pick" hidden></button>
+  <div class="warn" id="stale" hidden style="margin-top:10px"></div>
   <div class="row"><button class="b-in" id="bin" disabled>Sign In</button><button class="b-out" id="bout" disabled>Sign Out</button></div>
   <div class="msg" id="msg" role="status"></div>
   <div class="mut" id="sync" style="margin-top:2px"></div>
@@ -118,6 +119,7 @@ function daily(list){
     const k=pk(e)+'|'+fmtD(e.ts);
     const r=m[k]||(m[k]={staffId:e.staffId||'',name:e.name,day:fmtD(e.ts),dayTs:e.ts,in:null,out:null});
     if(e.type==='in'){if(r.in===null)r.in=e.ts}
+    else if(e.type==='missed')r.missed=true;
     else if(r.in!==null&&e.ts>=r.in)r.out=e.ts;
   }
   return Object.values(m).sort((a,b)=>(b.in??b.dayTs)-(a.in??a.dayTs));
@@ -127,7 +129,7 @@ function months(){const s=new Set(entries.map(e=>mk(e.ts)));s.add(mk(Date.now())
 function render(){
   const last={};
   for(const e of [...entries].sort((a,b)=>b.ts-a.ts)){const k=pk(e);if(!last[k])last[k]=e}
-  const here=Object.values(last).filter(e=>e.type==='in').sort((a,b)=>a.ts-b.ts);
+  const here=Object.values(last).filter(e=>e.type==='in'&&fmtD(e.ts)===fmtD(Date.now())).sort((a,b)=>a.ts-b.ts);
   $('cnt').textContent=here.length;$('none').hidden=here.length>0;
   const ul=$('present');ul.textContent='';
   for(const e of here){
@@ -145,7 +147,7 @@ function render(){
   const tb=$('log');tb.textContent='';$('empty').hidden=rows.length>0;
   for(const r of rows){
     const tr=document.createElement('tr');
-    [r.name,r.day,r.in?fmtT(r.in):'\u2014',r.out?fmtT(r.out):(r.in?'Still in':'\u2014')].forEach((c,i)=>{
+    [r.name,r.day,r.in?fmtT(r.in):'\u2014',r.out?fmtT(r.out):(r.in?((r.missed||fmtD(r.in)!==fmtD(Date.now()))?'No sign-out':'Still in'):'\u2014')].forEach((c,i)=>{
       const td=document.createElement('td');td.textContent=c;
       if(i===2&&r.in)td.className='in';if(i===3&&r.out)td.className='out';tr.append(td)});
     tb.append(tr);
@@ -159,12 +161,16 @@ function lastOf(p){return [...entries].sort((a,b)=>b.ts-a.ts).find(e=>pk(e)===p)
 function lookup(){const v=$('sid').value.trim().toLowerCase();return v?staff.find(s=>s.id.toLowerCase()===v):null}
 function clearSel(){sel=null;$('sid').value='';updatePick()}
 function updatePick(){
-  const f=lookup(),b=$('pick');
+  const f=lookup(),b=$('pick'),w=$('stale');
   if(sel&&(!f||f.id!==sel.id))sel=null;
   const st=sel?lastOf('id:'+sel.id.toLowerCase()):null,isIn=!!(st&&st.type==='in');
+  const stale=isIn&&fmtD(st.ts)!==fmtD(Date.now());
   b.hidden=!f;
-  if(f){b.textContent=sel?'\u2713 '+f.name+' \u2014 '+(isIn?'signed in since '+fmtT(st.ts):'not signed in'):f.name+'  \u2014 tap to confirm this is you';b.classList.toggle('on',!!sel)}
-  $('bin').disabled=!sel||isIn;$('bout').disabled=!sel||!isIn;
+  if(f){b.textContent=sel?'\u2713 '+f.name+' \u2014 '+(stale?'no sign-out on '+fmtD(st.ts):isIn?'signed in since '+fmtT(st.ts):'not signed in'):f.name+'  \u2014 tap to confirm this is you';b.classList.toggle('on',!!sel)}
+  w.hidden=!stale;
+  if(stale){const y=fmtD(st.ts)===fmtD(Date.now()-864e5)?'yesterday':'on '+fmtD(st.ts);
+    w.textContent=sel.name+', you didn\u2019t sign out '+y+'. Please ensure this is not repeated. Tap Sign In to continue.'}
+  $('bin').disabled=!sel||(isIn&&!stale);$('bout').disabled=!sel||!isIn||stale;
   clearTimeout(selT);if($('sid').value)selT=setTimeout(clearSel,45000);
 }
 let fails=0;
@@ -182,8 +188,10 @@ $('sid').addEventListener('keydown',e=>{if(e.key==='Enter'){const f=lookup();if(
 function record(type){
   if(!sel){flash('Enter your access code and tap your name first.',false);return}
   const cur=lastOf('id:'+sel.id.toLowerCase()),name=sel.name;
-  if(type==='in'&&cur&&cur.type==='in'){flash(name+', you are already signed in (since '+fmtT(cur.ts)+').',false);clearSel();return}
-  if(type==='out'&&!(cur&&cur.type==='in')){flash(name+', you are not signed in.',false);clearSel();return}
+  const open=!!(cur&&cur.type==='in'),stale=open&&fmtD(cur.ts)!==fmtD(Date.now());
+  if(type==='in'&&open&&!stale){flash(name+', you are already signed in (since '+fmtT(cur.ts)+').',false);clearSel();return}
+  if(type==='out'&&(!open||stale)){flash(name+', you are not signed in today.',false);clearSel();return}
+  if(type==='in'&&stale)entries.push({sid:uid(),staffId:sel.id,name,type:'missed',ts:cur.ts+1,synced:false});
   entries.push({sid:uid(),staffId:sel.id,name,type,ts:Date.now(),synced:false});save(LOG,entries);
   flash((type==='in'?'Signed in: ':'Signed out: ')+name+' at '+fmtT(Date.now()),true);
   clearSel();render();sync();
@@ -196,7 +204,7 @@ function csvFor(m){
   const q=v=>'"'+String(v).replace(/"/g,'""')+'"';
   const t=x=>x?new Date(x).toTimeString().slice(0,5):'';
   const rows=daily(entries.filter(e=>mk(e.ts)===m)).reverse();
-  return '\ufeff'+['Access code,Name,Date,Sign In,Sign Out'].concat(rows.map(r=>[r.staffId,r.name,new Date(r.dayTs).toLocaleDateString('en-CA'),t(r.in),t(r.out)].map(q).join(','))).join('\r\n');
+  return '\ufeff'+['Access code,Name,Date,Sign In,Sign Out'].concat(rows.map(r=>[r.staffId,r.name,new Date(r.dayTs).toLocaleDateString('en-CA'),t(r.in),(r.out?t(r.out):(r.in&&(r.missed||new Date(r.in).toDateString()!==new Date().toDateString())?'No sign-out':''))].map(q).join(','))).join('\r\n');
 }
 function download(m){
   if(!unlocked)return;
