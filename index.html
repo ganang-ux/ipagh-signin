@@ -47,8 +47,8 @@ th,td{text-align:left;padding:8px 6px;border-top:1px solid var(--bd);white-space
 <div class="warn" id="warn" hidden>Saving is unavailable in this browser (private mode?). Entries will be lost when you close this page.</div>
 
 <section class="card">
-  <h2 style="margin-bottom:10px">Enter your staff ID</h2>
-  <input id="sid" autocomplete="off" autocapitalize="characters" placeholder="Staff ID">
+  <h2 style="margin-bottom:10px">Enter your access code</h2>
+  <input id="sid" type="password" inputmode="numeric" autocomplete="off" data-lpignore="true" placeholder="Access code">
   <button class="pick" id="pick" hidden></button>
   <div class="row"><button class="b-in" id="bin" disabled>Sign In</button><button class="b-out" id="bout" disabled>Sign Out</button></div>
   <div class="msg" id="msg" role="status"></div>
@@ -63,7 +63,7 @@ th,td{text-align:left;padding:8px 6px;border-top:1px solid var(--bd);white-space
 
 <section class="card">
   <div class="head"><h2>Daily attendance</h2><select id="month" aria-label="Month"></select></div>
-  <div class="wrap"><table><thead><tr><th>Staff ID</th><th>Name</th><th>Date</th><th>Sign In</th><th>Sign Out</th></tr></thead><tbody id="log"></tbody></table></div>
+  <div class="wrap"><table><thead><tr><th>Name</th><th>Date</th><th>Sign In</th><th>Sign Out</th></tr></thead><tbody id="log"></tbody></table></div>
   <div class="mut" id="empty" style="margin-top:8px" hidden>No entries for this month.</div>
 </section>
 
@@ -80,8 +80,8 @@ th,td{text-align:left;padding:8px 6px;border-top:1px solid var(--bd);white-space
       <button class="b-del" id="clear">Clear this month's data</button>
     </div>
     <h2 style="margin-top:4px;font-size:.95rem">Staff list (<span id="scount">0</span> people)</h2>
-    <textarea id="sbulk" rows="5" placeholder="One person per line: ID, Name&#10;IPA001, Ama Mensah&#10;IPA002, Kofi Boateng"></textarea>
-    <div class="row"><button class="b-sm" id="sadd">Add / update from text</button><button class="b-sm" id="srep">Replace whole list</button><button class="b-sm" id="sview">Show current list</button></div>
+    <textarea id="sbulk" rows="5" placeholder="One person per line.&#10;Just a name gets a new random 6-digit code: Ama Mensah&#10;Or keep an existing code: 482913, Ama Mensah"></textarea>
+    <div class="row"><button class="b-sm" id="sgen">Generate codes for names</button><button class="b-sm" id="sadd">Add / update from text</button><button class="b-sm" id="srep">Replace whole list</button><button class="b-sm" id="sview">Show current list</button></div>
     <h2 style="margin-top:16px;font-size:.95rem">Sync to Google Sheet</h2>
     <div class="row"><input id="surl" placeholder="Web app URL" style="flex:2;min-width:200px"><input id="stok" type="password" placeholder="Secret token" style="flex:1;min-width:140px"></div>
     <div class="row"><button class="b-sm" id="ssave">Save sync settings</button><button class="b-sm" id="snow">Sync now</button></div>
@@ -144,9 +144,9 @@ function render(){
   const tb=$('log');tb.textContent='';$('empty').hidden=rows.length>0;
   for(const r of rows){
     const tr=document.createElement('tr');
-    [r.staffId||'\u2014',r.name,r.day,r.in?fmtT(r.in):'\u2014',r.out?fmtT(r.out):(r.in?'Still in':'\u2014')].forEach((c,i)=>{
+    [r.name,r.day,r.in?fmtT(r.in):'\u2014',r.out?fmtT(r.out):(r.in?'Still in':'\u2014')].forEach((c,i)=>{
       const td=document.createElement('td');td.textContent=c;
-      if(i===3&&r.in)td.className='in';if(i===4&&r.out)td.className='out';tr.append(td)});
+      if(i===2&&r.in)td.className='in';if(i===3&&r.out)td.className='out';tr.append(td)});
     tb.append(tr);
   }
   $('scount').textContent=staff.length;
@@ -166,11 +166,20 @@ function updatePick(){
   $('bin').disabled=!sel||isIn;$('bout').disabled=!sel||!isIn;
   clearTimeout(selT);if($('sid').value)selT=setTimeout(clearSel,45000);
 }
-$('sid').addEventListener('input',updatePick);
+let fails=0;
+function maxLen(){return Math.max(6,...staff.map(x=>x.id.length))}
+function failTry(){
+  $('sid').value='';updatePick();
+  if(!staff.length){flash('No staff list set up yet \u2014 ask the admin.',false);return}
+  fails++;
+  if(fails>=5){fails=0;$('sid').disabled=true;flash('Too many wrong codes. Try again in 30 seconds.',false);
+    setTimeout(()=>{$('sid').disabled=false;flash('',true)},30000)}
+  else flash('Access code not found.',false)}
+$('sid').addEventListener('input',()=>{updatePick();const v=$('sid').value.trim();if(v.length>=maxLen()&&!lookup())failTry()});
 $('pick').onclick=()=>{sel=lookup();updatePick()};
-$('sid').addEventListener('keydown',e=>{if(e.key==='Enter'){const f=lookup();if(f){sel=f;updatePick()}else flash(staff.length?'Staff ID not found.':'No staff list set up yet \u2014 ask the admin.',false)}});
+$('sid').addEventListener('keydown',e=>{if(e.key==='Enter'){const f=lookup();if(f){sel=f;updatePick()}else if($('sid').value.trim())failTry()}});
 function record(type){
-  if(!sel){flash('Enter your staff ID and tap your name first.',false);return}
+  if(!sel){flash('Enter your access code and tap your name first.',false);return}
   const cur=lastOf('id:'+sel.id.toLowerCase()),name=sel.name;
   if(type==='in'&&cur&&cur.type==='in'){flash(name+', you are already signed in (since '+fmtT(cur.ts)+').',false);clearSel();return}
   if(type==='out'&&!(cur&&cur.type==='in')){flash(name+', you are not signed in.',false);clearSel();return}
@@ -186,7 +195,7 @@ function csvFor(m){
   const q=v=>'"'+String(v).replace(/"/g,'""')+'"';
   const t=x=>x?new Date(x).toTimeString().slice(0,5):'';
   const rows=daily(entries.filter(e=>mk(e.ts)===m)).reverse();
-  return '\ufeff'+['Staff ID,Name,Date,Sign In,Sign Out'].concat(rows.map(r=>[r.staffId,r.name,new Date(r.dayTs).toLocaleDateString('en-CA'),t(r.in),t(r.out)].map(q).join(','))).join('\r\n');
+  return '\ufeff'+['Access code,Name,Date,Sign In,Sign Out'].concat(rows.map(r=>[r.staffId,r.name,new Date(r.dayTs).toLocaleDateString('en-CA'),t(r.in),t(r.out)].map(q).join(','))).join('\r\n');
 }
 function download(m){
   if(!unlocked)return;
@@ -230,7 +239,7 @@ function adminUI(){
   $('unlock').textContent=mode==='unlock'?'Unlock':'Set PIN';
   clearTimeout(idle);if(unlocked)idle=setTimeout(doLock,300000);
 }
-function doLock(){unlocked=false;mode=adm?'unlock':'create';adminUI()}
+function doLock(){$('sbulk').value='';unlocked=false;mode=adm?'unlock':'create';adminUI()}
 $('unlock').onclick=async()=>{
   const v=$('pin').value.trim();$('pin').value='';
   if(mode==='unlock'){
@@ -254,6 +263,21 @@ function parseRoster(t){const o=[],seen=new Set();
     const id=m[1].trim(),k=id.toLowerCase();if(seen.has(k))continue;seen.add(k);o.push({id,name:m[2].trim()})}
   return o}
 const sortS=a=>a.sort((x,y)=>x.id.localeCompare(y.id,undefined,{numeric:true}));
+$('sgen').onclick=()=>{if(!unlocked)return;
+  const used=new Set(staff.map(x=>x.id)),have=new Set(staff.map(x=>key(x.name))),add=[];let skipped=0;
+  const gen=()=>{for(let n=0;n<1000;n++){const c=String(100000+crypto.getRandomValues(new Uint32Array(1))[0]%900000);
+    if(!used.has(c)&&!/^(\d)\1{5}$/.test(c)&&c!=='123456'&&c!=='654321'){used.add(c);return c}}return null};
+  for(const ln of $('sbulk').value.split(/\r?\n/)){const t=ln.trim();if(!t)continue;
+    const m=t.match(/^([^,\t]+?)\s*[,\t]\s*(.+)$/);
+    if(m){used.add(m[1].trim());add.push({id:m[1].trim(),name:m[2].trim()});continue}
+    if(have.has(key(t))){skipped++;continue}
+    const c=gen();if(!c){amsg('Could not generate a unique code.');return}
+    have.add(key(t));add.push({id:c,name:t})}
+  if(!add.length){amsg(skipped?'Those names already have codes.':'Type one name per line first.');return}
+  const m=new Map(staff.map(x=>[x.id,x]));add.forEach(x=>m.set(x.id,x));
+  staff=sortS([...m.values()]);save(STAFF,staff);
+  $('sbulk').value=add.map(x=>x.id+', '+x.name).join('\n');
+  amsg('Saved '+add.length+' people. Copy these codes now and share each one privately.'+(skipped?' ('+skipped+' skipped: already listed.)':''),true);render()};
 $('sadd').onclick=()=>{if(!unlocked)return;const L=parseRoster($('sbulk').value);
   if(!L.length){amsg('Nothing to add. Use one line per person: ID, Name');return}
   const m=new Map(staff.map(x=>[x.id.toLowerCase(),x]));L.forEach(x=>m.set(x.id.toLowerCase(),x));
