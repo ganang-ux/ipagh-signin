@@ -81,7 +81,7 @@ th,td{text-align:left;padding:8px 6px;border-top:1px solid var(--bd);white-space
     </div>
     <h2 style="margin-top:4px;font-size:.95rem">Staff list (<span id="scount">0</span> people)</h2>
     <textarea id="sbulk" rows="5" placeholder="One person per line.&#10;Just a name gets a new random 6-digit code: Ama Mensah&#10;Or keep an existing code: 482913, Ama Mensah"></textarea>
-    <div class="row"><button class="b-sm" id="sgen">Generate codes for names</button><button class="b-sm" id="sadd">Add / update from text</button><button class="b-sm" id="srep">Replace whole list</button><button class="b-sm" id="sview">Show current list</button></div>
+    <div class="row"><button class="b-sm" id="sgen">Generate codes for names</button><button class="b-sm" id="sadd">Add / update from text</button><button class="b-sm" id="srep">Replace whole list</button><button class="b-sm" id="sview">Show current list</button><button class="b-sm" id="sdl">Download staff list backup</button></div>
     <h2 style="margin-top:16px;font-size:.95rem">Sync to Google Sheet</h2>
     <div class="row"><input id="surl" placeholder="Web app URL" style="flex:2;min-width:200px"><input id="stok" type="password" placeholder="Secret token" style="flex:1;min-width:140px"></div>
     <div class="row"><button class="b-sm" id="ssave">Save sync settings</button><button class="b-sm" id="snow">Sync now</button></div>
@@ -286,6 +286,12 @@ $('srep').onclick=()=>{if(!unlocked)return;const L=parseRoster($('sbulk').value)
   if(!L.length){amsg('Nothing to replace with. Use one line per person: ID, Name');return}
   if(!confirm('Replace the whole staff list with these '+L.length+' people?'))return;
   staff=sortS(L);save(STAFF,staff);amsg('Staff list replaced: '+staff.length+' people.',true);render()};
+$('sdl').onclick=()=>{if(!unlocked)return;
+  if(!staff.length){amsg('The staff list is empty.');return}
+  const a=document.createElement('a');
+  a.href=URL.createObjectURL(new Blob([staff.map(x=>x.id+', '+x.name).join('\r\n')+'\r\n'],{type:'text/plain;charset=utf-8'}));
+  a.download='staff-list-backup-'+new Date().toLocaleDateString('en-CA')+'.txt';document.body.append(a);a.click();a.remove();
+  setTimeout(()=>URL.revokeObjectURL(a.href),2000);amsg('Backup downloaded. It contains private codes, so store it safely.',true)};
 $('sview').onclick=()=>{if(unlocked)$('sbulk').value=staff.map(x=>x.id+', '+x.name).join('\n')};
 /* ---- Sync to Google Sheet ---- */
 const SYN='signin_sync_v1';let syncing=false;
