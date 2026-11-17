@@ -80,6 +80,7 @@ th,td{text-align:left;padding:8px 6px;border-top:1px solid var(--bd);white-space
       <button class="b-del" id="clear">Clear this month's data</button>
     </div>
     <h2 style="margin-top:4px;font-size:.95rem">Staff list (<span id="scount">0</span> people)</h2>
+    <div class="mut" id="rinfo" style="margin-bottom:8px"></div>
     <textarea id="sbulk" rows="5" placeholder="One person per line.&#10;Just a name gets a new random 6-digit code: Ama Mensah&#10;Or keep an existing code: 482913, Ama Mensah"></textarea>
     <div class="row"><button class="b-sm" id="sgen">Generate codes for names</button><button class="b-sm" id="sadd">Add / update from text</button><button class="b-sm" id="srep">Replace whole list</button><button class="b-sm" id="sview">Show current list</button><button class="b-sm" id="sdl">Download staff list backup</button></div>
     <h2 style="margin-top:16px;font-size:.95rem">Sync to Google Sheet</h2>
@@ -258,12 +259,13 @@ $('pin').addEventListener('keydown',e=>{if(e.key==='Enter')$('unlock').click()})
 $('chpin').onclick=()=>{mode='change';adminUI()};
 $('lock').onclick=doLock;
 document.addEventListener('click',()=>{if(unlocked){clearTimeout(idle);idle=setTimeout(doLock,300000)}});
+const SHEETMSG='Staff are managed in your Google Sheet (Staff tab), not here.';
 function parseRoster(t){const o=[],seen=new Set();
   for(const ln of t.split(/\r?\n/)){const m=ln.match(/^\s*([^,\t]+?)\s*[,\t]\s*(.+?)\s*$/);if(!m)continue;
     const id=m[1].trim(),k=id.toLowerCase();if(seen.has(k))continue;seen.add(k);o.push({id,name:m[2].trim()})}
   return o}
 const sortS=a=>a.sort((x,y)=>x.id.localeCompare(y.id,undefined,{numeric:true}));
-$('sgen').onclick=()=>{if(!unlocked)return;
+$('sgen').onclick=()=>{if(!unlocked)return;if(cfg.url&&cfg.token){amsg(SHEETMSG);return}
   const used=new Set(staff.map(x=>x.id)),have=new Set(staff.map(x=>key(x.name))),add=[];let skipped=0;
   const gen=()=>{for(let n=0;n<1000;n++){const c=String(100000+crypto.getRandomValues(new Uint32Array(1))[0]%900000);
     if(!used.has(c)&&!/^(\d)\1{5}$/.test(c)&&c!=='123456'&&c!=='654321'){used.add(c);return c}}return null};
@@ -278,11 +280,11 @@ $('sgen').onclick=()=>{if(!unlocked)return;
   staff=sortS([...m.values()]);save(STAFF,staff);
   $('sbulk').value=add.map(x=>x.id+', '+x.name).join('\n');
   amsg('Saved '+add.length+' people. Copy these codes now and share each one privately.'+(skipped?' ('+skipped+' skipped: already listed.)':''),true);render()};
-$('sadd').onclick=()=>{if(!unlocked)return;const L=parseRoster($('sbulk').value);
+$('sadd').onclick=()=>{if(!unlocked)return;if(cfg.url&&cfg.token){amsg(SHEETMSG);return}const L=parseRoster($('sbulk').value);
   if(!L.length){amsg('Nothing to add. Use one line per person: ID, Name');return}
   const m=new Map(staff.map(x=>[x.id.toLowerCase(),x]));L.forEach(x=>m.set(x.id.toLowerCase(),x));
   staff=sortS([...m.values()]);save(STAFF,staff);amsg('Staff list updated: '+staff.length+' people.',true);render()};
-$('srep').onclick=()=>{if(!unlocked)return;const L=parseRoster($('sbulk').value);
+$('srep').onclick=()=>{if(!unlocked)return;if(cfg.url&&cfg.token){amsg(SHEETMSG);return}const L=parseRoster($('sbulk').value);
   if(!L.length){amsg('Nothing to replace with. Use one line per person: ID, Name');return}
   if(!confirm('Replace the whole staff list with these '+L.length+' people?'))return;
   staff=sortS(L);save(STAFF,staff);amsg('Staff list replaced: '+staff.length+' people.',true);render()};
@@ -317,12 +319,31 @@ async function sync(manual){
   }catch(e){const n=entries.filter(x=>!x.synced).length;stat(n+' waiting to sync \u2014 will retry automatically');if(manual)amsg('Sync failed: '+e.message)}
   syncing=false;
 }
+let rosterAt=null;
+function rinfo(){const e=$('rinfo');if(!e)return;
+  e.textContent=(cfg.url&&cfg.token)?'Managed in your Google Sheet (Staff tab).'+(rosterAt?' Last updated '+fmtT(rosterAt)+'.':' Not updated yet.'):'Managed on this tablet. Download a backup after every change.'}
+async function pullRoster(manual){
+  if(!cfg.url||!cfg.token||!navigator.onLine)return;
+  try{
+    const r=await fetch(cfg.url,{method:'POST',headers:{'Content-Type':'text/plain;charset=utf-8'},body:JSON.stringify({token:cfg.token,action:'roster'})});
+    const j=await r.json();
+    if(!j.ok)throw new Error(j.error||'rejected');
+    if(Array.isArray(j.staff)&&j.staff.length){
+      staff=sortS(j.staff.map(x=>({id:String(x.id).trim(),name:String(x.name).trim()})).filter(x=>x.id&&x.name));
+      save(STAFF,staff);rosterAt=Date.now();render();
+      if(manual)amsg('Staff list updated from the sheet: '+staff.length+' people.',true);
+    }else if(manual)amsg('The Staff tab in your sheet is empty or not set up yet.');
+  }catch(e){if(manual)amsg('Could not get the staff list: '+e.message)}
+  rinfo();
+}
 $('ssave').onclick=()=>{if(!unlocked)return;cfg={url:$('surl').value.trim(),token:$('stok').value.trim()};
-  try{localStorage.setItem(SYN,JSON.stringify(cfg))}catch(e){}amsg('Sync settings saved.',true);sync(true)};
-$('snow').onclick=()=>{if(unlocked)sync(true)};
-window.addEventListener('online',()=>sync());setInterval(()=>sync(),60000);
+  try{localStorage.setItem(SYN,JSON.stringify(cfg))}catch(e){}amsg('Sync settings saved.',true);sync(true);pullRoster(true);rinfo()};
+$('snow').onclick=()=>{if(unlocked){sync(true);pullRoster(true)}};
+window.addEventListener('online',()=>{sync();pullRoster()});setInterval(()=>sync(),60000);setInterval(()=>pullRoster(),300000);
 adminUI();
 render();
+rinfo();
 sync();
+pullRoster();
 if('serviceWorker' in navigator){window.addEventListener('load',()=>navigator.serviceWorker.register('sw.js').catch(()=>{}))}
 </script></body></html>
