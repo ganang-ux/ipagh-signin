@@ -169,7 +169,7 @@ function updatePick(){
   if(f){b.textContent=sel?'\u2713 '+f.name+' \u2014 '+(stale?'no sign-out on '+fmtD(st.ts):isIn?'signed in since '+fmtT(st.ts):'not signed in'):f.name+'  \u2014 tap to confirm this is you';b.classList.toggle('on',!!sel)}
   w.hidden=!stale;
   if(stale){const y=fmtD(st.ts)===fmtD(Date.now()-864e5)?'yesterday':'on '+fmtD(st.ts);
-    w.textContent='Welcome back, 'sel.name+'! We didn\u2019t see you sign out '+y+'. Please remember to sign out when you leave. Tap Sign In to continue.'}
+    w.textContent=sel.name+', you didn\u2019t sign out '+y+'. Please ensure this is not repeated. Tap Sign In to continue.'}
   $('bin').disabled=!sel||(isIn&&!stale);$('bout').disabled=!sel||!isIn||stale;
   clearTimeout(selT);if($('sid').value)selT=setTimeout(clearSel,45000);
 }
