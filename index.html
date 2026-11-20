@@ -172,8 +172,8 @@ entries.forEach(e=>{if(!e.sid){e.sid=uid();e.synced=false}});if(!canSave)$('warn
 const exported={};
 const key=n=>n.trim().toLowerCase().replace(/\s+/g,' ');
 const clean=n=>n.trim().replace(/\s+/g,' ');
-const fmtT=t=>new Date(t).toLocaleTimeString([], {hour:'2-digit',minute:'2-digit'});
-const fmtD=t=>new Date(t).toLocaleDateString([], {day:'numeric',month:'short',year:'numeric'});
+const fmtT=t=>new Date(t).toLocaleTimeString('en-US', {hour:'numeric',minute:'2-digit',hour12:true});
+const fmtD=t=>new Date(t).toLocaleDateString('en-GB', {day:'numeric',month:'short',year:'numeric'});
 const mk=t=>{const d=new Date(t);return d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')};
 const mLabel=m=>{const [y,mo]=m.split('-');return new Date(y,mo-1,1).toLocaleDateString([], {month:'long',year:'numeric'})};
 function tick(){const d=new Date();$('hm').textContent=d.toLocaleTimeString([], {hour:'2-digit',minute:'2-digit',hourCycle:'h23'});
