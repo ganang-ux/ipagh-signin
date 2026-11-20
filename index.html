@@ -145,6 +145,9 @@ th,td{text-align:left;padding:8px 6px;border-top:1px solid var(--bd);white-space
     <h2 style="margin-top:4px;font-size:.95rem">This tablet</h2>
     <div class="row" style="margin-top:6px"><select id="toff" style="flex:1;min-width:140px"><option value="">Select office</option><option>Accra</option><option>Tamale</option></select><input id="tname" placeholder="Tablet name (e.g. Accra Front Desk)" style="flex:2;min-width:180px"></div>
     <div class="row"><button class="b-sm" id="tsave">Save tablet settings</button></div>
+    <h2 style="margin-top:16px;font-size:.95rem">Visitor list (<span id="vcount">0</span>)</h2>
+    <div class="row" style="margin-top:6px"><button class="b-sm" id="vref">Refresh from sheet</button></div>
+    <div class="wrap" style="margin-top:8px;max-height:220px;overflow:auto"><table><thead><tr><th>Phone</th><th>First name</th><th>Organisation</th></tr></thead><tbody id="vlist"></tbody></table></div>
     <h2 style="margin-top:16px;font-size:.95rem">Staff list (<span id="scount">0</span> people)</h2>
     <div class="mut" id="rinfo" style="margin-bottom:8px"></div>
     <textarea id="sbulk" rows="5" placeholder="One person per line.&#10;Just a name gets a new random 6-digit code: Ama Mensah&#10;Or keep an existing code: 482913, Ama Mensah"></textarea>
@@ -173,11 +176,12 @@ const exported={};
 const key=n=>n.trim().toLowerCase().replace(/\s+/g,' ');
 const clean=n=>n.trim().replace(/\s+/g,' ');
 const fmtT=t=>new Date(t).toLocaleTimeString('en-US', {hour:'numeric',minute:'2-digit',hour12:true});
-const fmtD=t=>new Date(t).toLocaleDateString('en-GB', {day:'numeric',month:'short',year:'numeric'});
+const MONTHS_=['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+const fmtD=t=>{const d=new Date(t);return String(d.getDate()).padStart(2,'0')+'-'+MONTHS_[d.getMonth()]+'-'+String(d.getFullYear()).slice(2)};
 const mk=t=>{const d=new Date(t);return d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')};
 const mLabel=m=>{const [y,mo]=m.split('-');return new Date(y,mo-1,1).toLocaleDateString([], {month:'long',year:'numeric'})};
-function tick(){const d=new Date();$('hm').textContent=d.toLocaleTimeString([], {hour:'2-digit',minute:'2-digit',hourCycle:'h23'});
-  $('date').textContent=d.toLocaleDateString([], {weekday:'long',day:'numeric',month:'long',year:'numeric'})}
+function tick(){const d=new Date();$('hm').textContent=fmtT(d);
+  $('date').textContent=fmtD(d)}
 tick();setInterval(tick,20000);
 function flash(t,ok){const m=$('msg');m.textContent=t;m.style.color=ok?'var(--okt)':'var(--out)';setTimeout(()=>{if(m.textContent===t)m.textContent=''},5000)}
 
@@ -202,7 +206,7 @@ function render(){
   const ul=$('present');ul.textContent='';
   for(const e of here){
     const li=document.createElement('li'),d=document.createElement('div');
-    const n=document.createElement('strong');n.textContent=e.kind==='visitor'?firstName(e.name):e.name;
+    const n=document.createElement('strong');n.textContent=firstName(e.name);
     const s=document.createElement('div');s.className='mut';
     s.textContent=(e.kind==='visitor'&&e.org?e.org+' \u00b7 ':'')+(e.office?e.office+' \u00b7 ':'')+'In since '+fmtT(e.ts)+(fmtD(e.ts)!==fmtD(Date.now())?' ('+fmtD(e.ts)+')':'');
     d.append(n,s);
@@ -220,7 +224,7 @@ function render(){
       if(i===2&&r.in)td.className='in';if(i===3&&r.out)td.className='out';tr.append(td)});
     tb.append(tr);
   }
-  $('scount').textContent=staff.length;renderToday();
+  $('scount').textContent=staff.length;renderToday();renderVL();
   document.querySelectorAll('.tg').forEach(b=>b.classList.toggle('on',b.dataset.v===siteView));
   const vb=$('vlog');vb.textContent='';
   for(const v of visits().slice(0,40)){const tr=document.createElement('tr');
@@ -236,6 +240,7 @@ function normPhone(v){const t=String(v).replace(/[\s\-().]/g,'');let m;
   if(/^\+233\d{9}$/.test(t))return t;if(/^\+[1-9]\d{7,14}$/.test(t)&&!t.startsWith('+233'))return t;
   if(/^00[1-9]\d{7,14}$/.test(t))return normPhone('+'+t.slice(2));
   if(/^233\d{9}$/.test(t))return '+'+t;if(/^0\d{9}$/.test(t))return '+233'+t.slice(1);return null}
+function normList(p){p=String(p).replace(/[\s\-().]/g,'');return normPhone(p)||(/^\d{9}$/.test(p)?'+233'+p:p)}
 function mkChips(box,list,cb){for(const x of list){const b=document.createElement('button');b.className='chip';b.textContent=x;b.dataset.v=x;b.onclick=()=>cb(x);box.append(b)}}
 function chipSync(box,v){box.querySelectorAll('.chip').forEach(b=>b.classList.toggle('on',b.dataset.v===v))}
 function visits(src){const o=[];
@@ -298,7 +303,7 @@ function csvFor(m){
   const q=v=>'"'+String(v).replace(/"/g,'""')+'"';
   const t=x=>x?new Date(x).toTimeString().slice(0,5):'';
   const rows=daily(entries.filter(e=>mk(e.ts)===m)).reverse();
-  return '\ufeff'+['Access code,Name,Date,Sign In,Sign Out'].concat(rows.map(r=>[r.staffId,r.name,new Date(r.dayTs).toLocaleDateString('en-CA'),t(r.in),(r.out?t(r.out):(r.in&&(r.missed||new Date(r.in).toDateString()!==new Date().toDateString())?'No sign-out':''))].map(q).join(','))).join('\r\n');
+  return '\ufeff'+['Access code,Name,Date,Sign In,Sign Out'].concat(rows.map(r=>[r.staffId,r.name,fmtD(r.dayTs),t(r.in),(r.out?t(r.out):(r.in&&(r.missed||new Date(r.in).toDateString()!==new Date().toDateString())?'No sign-out':''))].map(q).join(','))).join('\r\n');
 }
 function download(m){
   if(!unlocked)return;
@@ -332,7 +337,7 @@ function vcheck(){vchecking=true;updateVis();pullState(true).finally(()=>{vcheck
 function updateVis(){
   const raw=$('vph').value.trim(),p=normPhone(raw);
   if(vs&&(!p||vs.phone!==p))vs=null;
-  if(!vs&&p){const rec=vis.find(x=>x.phone===p)||null;vs={phone:p,rec,ok:!rec};vpur=null;if(!rec)vcheck()}
+  if(!vs&&p){const rec=vis.find(x=>(normPhone(x.phone)||x.phone)===p)||null;vs={phone:p,rec,ok:!rec};vpur=null;if(!rec)vcheck()}
   if(!p&&raw.replace(/\D/g,'').length>=10)vflash('Please check the phone number.',false);
   const rec=vs&&vs.rec,st=vs&&vs.ok?vlast(vs.phone):null,isIn=!!(st&&st.type==='in'),stale=isIn&&fmtD(st.ts)!==fmtD(Date.now());
   $('vpick').hidden=!rec;$('vnot').hidden=!(rec&&!vs.ok);
@@ -362,6 +367,8 @@ function vrec(type){
   if(e.rect){vthanks='Thank you. Your missed sign-out has been recorded. Choose a purpose and tap Sign In if you are arriving today, or you can leave if you are just exiting.';updateVis();render();sync();return}
   const f=firstName(name);resetVis();vflash((type==='in'?'Signed in: ':'Signed out: ')+f+' at '+fmtT(Date.now()),true);render();sync();
 }
+function renderVL(){$('vcount').textContent=vis.length;const tb=$('vlist');tb.textContent='';
+  for(const v of vis){const tr=document.createElement('tr');[v.phone,v.first,v.org].forEach(c=>{const td=document.createElement('td');td.textContent=c||'\u2014';tr.append(td)});tb.append(tr)}}
 function renderToday(){
   const td=fmtD(Date.now());$('tdate').textContent=td;
   document.querySelectorAll('.tg2').forEach(b=>b.classList.toggle('on',b.dataset.v===todayView));
@@ -369,11 +376,11 @@ function renderToday(){
   const head=isV?['Name','Organisation','Office','In','Out']:['Name','Office','In','Out'];
   const hr=document.createElement('tr');head.forEach(h=>{const th=document.createElement('th');th.textContent=h;hr.append(th)});
   $('thead2').textContent='';$('thead2').append(hr);
-  const rows=isV?visits(today).map(v=>[firstName(v.name),v.org,v.office,fmtT(v.in),v.out?fmtT(v.out):'Still in']):daily(today.filter(e=>e.kind!=='visitor')).map(r=>[r.name,r.office,r.in?fmtT(r.in):'\u2014',r.out?fmtT(r.out):'Still in']);
+  const rows=isV?visits(today).map(v=>[firstName(v.name),v.org,v.office,fmtT(v.in),v.out?fmtT(v.out):'Still in']):daily(today.filter(e=>e.kind!=='visitor')).map(r=>[firstName(r.name),r.office,r.in?fmtT(r.in):'\u2014',r.out?fmtT(r.out):'Still in']);
   const tb=$('tbody2');tb.textContent='';$('tempty').hidden=rows.length>0;
   rows.forEach(c=>{const tr=document.createElement('tr');c.forEach(x=>{const td=document.createElement('td');td.textContent=x||'\u2014';tr.append(td)});tb.append(tr)});
 }
-function showScreen(x){$('start').hidden=x!=='start';$('staffcard').hidden=x!=='staff';$('viscard').hidden=x!=='visitor';clearSel();resetVis()}
+function showScreen(x){$('start').hidden=x!=='start';$('staffcard').hidden=x!=='staff';$('viscard').hidden=x!=='visitor';clearSel();resetVis();if(x==='visitor')pullRoster()}
 $('vpriv').textContent=PRIVACY;
 mkChips($('vpur'),PURPOSES,x=>{vpur=x;updateVis()});
 ['vph','vname','vorg'].forEach(i=>$(i).addEventListener('input',updateVis));
@@ -494,7 +501,7 @@ async function pullRoster(manual){
     const r=await fetch(cfg.url,{method:'POST',headers:{'Content-Type':'text/plain;charset=utf-8'},body:JSON.stringify({token:cfg.token,action:'roster'})});
     const j=await r.json();
     if(!j.ok)throw new Error(j.error||'rejected');
-    if(Array.isArray(j.visitors)){const sv=j.visitors.map(x=>({phone:String(x.phone),first:x.first,org:x.org||''})),have=new Set(sv.map(x=>x.phone));vis.forEach(x=>{if(!have.has(x.phone)&&entries.some(e=>e.kind==='visitor'&&!e.synced&&e.phone===x.phone))sv.push(x)});vis=sv;save('signin_vis_v1',vis)}
+    if(Array.isArray(j.visitors)){const sv=j.visitors.map(x=>({phone:normList(x.phone),first:x.first,org:x.org||''})),have=new Set(sv.map(x=>x.phone));vis.forEach(x=>{if(!have.has(x.phone)&&entries.some(e=>e.kind==='visitor'&&!e.synced&&e.phone===x.phone))sv.push(x)});vis=sv;save('signin_vis_v1',vis);render()}
     if(Array.isArray(j.staff)&&j.staff.length){
       staff=sortS(j.staff.map(x=>({id:String(x.id).trim(),name:String(x.name).trim()})).filter(x=>x.id&&x.name));
       save(STAFF,staff);rosterAt=Date.now();render();
@@ -513,14 +520,15 @@ async function pullState(quick){
     const j=await r.json();if(j.ok&&Array.isArray(j.entries)){remote=j.entries;save('signin_remote_v1',remote);render()}}
   catch(e){}finally{clearTimeout(t)}
 }
+$('vref').onclick=()=>{if(unlocked)pullRoster(true)};
 $('tsave').onclick=()=>{if(!unlocked)return;tcfg={office:$('toff').value,name:$('tname').value.trim()};
   try{localStorage.setItem('signin_tablet_v1',JSON.stringify(tcfg))}catch(e){}
   officeUI();amsg('Tablet settings saved.',true);pullState()};
 $('vexp').onclick=()=>{if(!unlocked)return;const q=v=>'"'+String(v||'').replace(/"/g,'""')+'"';
-  const rows=['Name,Phone,Organisation,Office,Purpose,Date,Sign In,Sign Out'].concat(visits().reverse().map(v=>[v.name,v.phone,v.org,v.office,v.purpose,new Date(v.in).toLocaleDateString('en-CA'),fmtT(v.in),v.out?fmtT(v.out):'No sign-out'].map(q).join(',')));
+  const rows=['Name,Phone,Organisation,Office,Purpose,Date,Sign In,Sign Out'].concat(visits().reverse().map(v=>[v.name,v.phone,v.org,v.office,v.purpose,fmtD(v.in),fmtT(v.in),v.out?fmtT(v.out):'No sign-out'].map(q).join(',')));
   const a=document.createElement('a');a.href=URL.createObjectURL(new Blob(['\ufeff'+rows.join('\r\n')],{type:'text/csv;charset=utf-8'}));a.download='visitors-log.csv';document.body.append(a);a.click();a.remove()};
 $('snow').onclick=()=>{if(unlocked){sync(true);pullRoster(true)}};
-window.addEventListener('online',()=>{sync();pullRoster();pullState()});setInterval(()=>sync(),60000);setInterval(()=>pullRoster(),300000);setInterval(()=>pullState(),30000);
+window.addEventListener('online',()=>{sync();pullRoster();pullState()});setInterval(()=>sync(),60000);setInterval(()=>pullRoster(),60000);setInterval(()=>pullState(),30000);
 adminUI();
 officeUI();
 render();
